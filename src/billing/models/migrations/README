@@ -1,0 +1,8 @@
+Generic single-database configuration.
+
+For comparing/deducing sa fields from sqlmodel class use
+```
+from sqlmodel.main import get_column_from_field
+for k, v in Wallet.__fields__.items():
+    print(k, get_column_from_field(v).__repr__())
+```

@@ -1,0 +1,39 @@
+version: "3.3"
+
+
+services:
+
+  billing:
+    build:
+      dockerfile: ./images/backend/dev/Dockerfile
+      context: .
+    image: billing_dev
+    volumes:
+    - type: bind
+      source: ./src
+      target: /srv/billing/src
+    - type: bind
+      source: ./manage
+      target: /srv/billing/manage
+    env_file:
+      - .env
+    restart: on-failure
+    ports:
+      - "5007:5007"
+      - "8000:8000"
+    entrypoint: /srv/billing/venv/bin/python -mpyls --tcp --host 0.0.0.0 --port 5007 -vvv
+
+  db:
+    image: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    environment:
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_DB: ${DATABASE_NAME}
+    restart: always
+
+volumes:
+  db_data:

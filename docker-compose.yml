@@ -1,0 +1,32 @@
+version: "3.3"
+
+
+services:
+
+  billing:
+    build:
+      dockerfile: ./images/backend/prod/Dockerfile
+      context: .
+    image: billing_prod
+    volumes:
+    - type: bind
+      source: ./src
+      target: /srv/billing/src
+    - type: bind
+      source: ./manage
+      target: /srv/billing/manage
+    env_file:
+      - .env
+    restart: on-failure
+    entrypoint: sleep inf
+
+  db:
+    image: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    restart: always
+
+volumes:
+  db_data:

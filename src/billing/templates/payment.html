@@ -1,0 +1,17 @@
+<html>
+<head>
+    <title>Payment</title>
+</head>
+<body>
+  <form method="POST">
+    <label for="currency"> Choose a currency:</label>
+    <select id="currency_id" name="currency_id">
+      {% for currency in currencies %}
+      <option value="{{ currency.id }}"> {{ currency.code.value }} </option>
+      {% endfor %}
+    </select>
+    <br>
+    <input type="submit">
+  </form>
+</body>
+</html>
