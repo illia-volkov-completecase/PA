@@ -1,17 +1,19 @@
 from typing import Union
+from decimal import Decimal
+from urllib.parse import urljoin
 
-from fastapi import Request, Form, APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 from starlette.responses import FileResponse
 
-from settings.core import ROOT
-from models.core import Session
+from settings.core import ROOT, HOSTNAME
 from models.accounts import Merchant, Staff
 from models.wallets import Wallet, Currency
-from models.transactions import Invoice
+from models.transactions import Invoice, Transaction, PaymentSystem
 from dependencies import get_user, get_merchant, db_session as db, paging, templates
 from misc import Paginated
+from services import *
 
 
 router = APIRouter()
@@ -24,22 +26,69 @@ class AddWalletRequest(BaseModel):
     currency_id: int
 
 
+class WalletTransferRequest(BaseModel):
+    from_wallet_id: int
+    to_wallet_id: int
+    amount: str
+
+
+class CreateTransactionRequest(BaseModel):
+    amount: str
+    currency_id: int
+
+
+class CreateAttemptRequest(BaseModel):
+    payment_system_id: int
+
+
+class ConversionRateRequest(BaseModel):
+    from_currency_id: int
+    to_currency_id: int
+
+
 class AddInvoiceRequest(BaseModel):
     amount: str
     to_wallet_id: int
 
 
 @router.get('/')
-def index():
-    return FileResponse(ROOT / 'static' / 'index.html')
+def index(
+        request: Request,
+        session: Session = Depends(db), user: User = Depends(get_user)
+):
+    ctx = {
+        'request': request, 'user': user,
+        'pay_url': urljoin(HOSTNAME, 'pay'),
+        'payment_systems': ', '.join(
+            f'{{id: {s.id}, name: "{s.system_type}"}}'
+            for s in session.query(PaymentSystem).all()
+        ),
+        'currencies': ', '.join(
+            f'{{id: {c.id}, name: "{c.code}"}}'
+            for c in session.query(Currency).all()
+        )
+    }
+    if isinstance(user, Staff):
+        return templates.TemplateResponse("staff.html", ctx)
+    elif isinstance(user, Merchant):
+        return templates.TemplateResponse("merchant.html", ctx)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Nor staff, nor merchant",
+        )
 
 
-@router.get('/config')
+@router.get('/currencies')
 def currencies(session: Session = Depends(db)):
     return {
         'currencies': [c.dict() for c in session.query(Currency).all()],
-        'pay_prefix': 'https://pay.com/payment/'
     }
+
+
+@router.get('/rates/{from_currency_id}')
+def rates(from_currency_id: int, session: Session = Depends(db)):
+    return calculate_rates(from_currency_id)
 
 
 @router.get('/wallets', response_model=list[Wallet])
@@ -62,7 +111,7 @@ def add_wallet(
 
 
 @router.get('/invoices', response_model=Paginated[Invoice])
-def invoices(
+def get_invoices(
         paging: dict = Depends(paging),
         session: Session = Depends(db), user: User = Depends(get_user)
 ):
@@ -86,17 +135,75 @@ def add_invoice(
     return invoice
 
 
-@router.get('/payment/{token}', response_class=HTMLResponse)
-def payment(request: Request, token: str, session: Session = Depends(db)):
-    ctx = {'request': request}
-    currencies = session.query(Currency).all()
-    ctx = {'request': request, 'currencies': currencies}
-    return templates.TemplateResponse("payment.html", ctx)
-
-
-@router.post('/payment/{token}', response_class=HTMLResponse)
-def create_transaction(
-        request: Request, token: str, session: Session = Depends(db),
-        currency_id: int = Form(...)
+@router.get('/transactions', response_model=Paginated[Transaction])
+def transactions(
+        paging: dict = Depends(paging),
+        session: Session = Depends(db), user: User = Depends(get_user)
 ):
-    pass
+    queryset = session.query(Transaction)
+    if not isinstance(user, Staff):
+        queryset = queryset.join(Invoice)\
+                           .join(Wallet).filter(Wallet.merchant_id == user.id)
+    return Paginated[Transaction].from_queryset(queryset, **paging)
+
+
+@router.get('/pay/{token}')
+def get_payment_info_invoice(
+        token: str,
+        session: Session = Depends(db)
+):
+    invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+    with InvoiceManager(invoice_id) as manager:
+        return manager.get_payment_info()
+
+
+@router.post('/pay/{token}')
+def create_transaction(
+        token: str,
+        transaction_request: CreateTransactionRequest,
+        session: Session = Depends(db)
+):
+    invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+    with InvoiceManager(invoice_id) as manager:
+        transaction = manager.create_transaction(
+            currency_id=transaction_request.currency_id,
+            amount=Decimal(transaction_request.amount)
+        )
+    return {
+        'token': transaction.token,
+        'attempt': urljoin(HOSTNAME, f'/attempt/{transaction.token}')
+    }
+
+
+@router.get('/attempt/{token}')
+def get_payment_info_transaction(
+        token: str,
+        session: Session = Depends(db)
+):
+    transaction_id = session.query(Transaction.id).filter(Transaction.token == token).scalar()
+    with TransactionManager(transaction_id) as manager:
+        return manager.get_payment_info()
+
+
+@router.post('/attempt/{token}')
+def create_attempt(
+        token: str,
+        attempt_request: CreateAttemptRequest,
+        session: Session = Depends(db)
+):
+    transaction_id = session.query(Transaction.id).filter(Transaction.token == token).scalar()
+    with TransactionManager(transaction_id) as tmanager:
+        attempt = tmanager.create_attempt(payment_system_id=attempt_request.payment_system_id)
+        with AttemptManager(attempt.id) as amanager:
+            return amanager.send()
+
+
+@router.post('/visa/{payment_system_id}')
+async def visa_response(
+        payment_system_id: int,
+        request: Request
+):
+    body = await request.body()
+    with VisaManager(payment_system_id) as manager:
+        manager.process_response(body)
+    return {}

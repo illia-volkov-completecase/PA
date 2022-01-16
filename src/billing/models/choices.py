@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class CurrencyEnum(str, Enum):
+class CurrencyCode(str, Enum):
     """
     as of ISO 4217
     """
@@ -12,18 +12,23 @@ class CurrencyEnum(str, Enum):
     gbp = 'GBP'
 
 
-class InvoiceStatusEnum(str, Enum):
+class InvoiceStatus(str, Enum):
     pending = 'pending'
     incomplete = 'incomplete'
     complete = 'complete'
 
 
-class TransactionStatusEnum(str, Enum):
+class TransactionStatus(str, Enum):
     pending = 'pending'
     success = 'success'
     fail = 'fail'
-    error = 'error'
-    canceled = 'canceled'
+    refunded = 'refunded'
+
+
+class AttemptStatus(str, Enum):
+    pending = 'pending'
+    success = 'success'
+    fail = 'fail'
 
 
 class PaymentSystemType(str, Enum):

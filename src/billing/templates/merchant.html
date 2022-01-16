@@ -1,0 +1,147 @@
+<html>
+  <head>
+    <link type="text/css" rel="stylesheet" href="/static/jsgrid.min.css" />
+    <link type="text/css" rel="stylesheet" href="/static/jsgrid-theme.min.css" />
+    <script type="text/javascript" src="/static/jquery.min.js"></script>
+    <script type="text/javascript" src="/static/jsgrid.min.js"></script>
+    <script type="text/javascript" src="/static/utils.js"></script>
+  </head>
+  <body>
+
+    Wallets
+    <div id="wallets"></div>
+
+    Invoices
+    <div id="invoices"></div>
+
+    Transactions
+    <div id="transactions"></div>
+
+    <script>
+      const currencies = [
+          {{ currencies|safe }}
+      ];
+      const payment_systems = [
+          {{ payment_systems|safe }}
+      ];
+
+      const post_data = (url, data = {}, method = 'POST') => {
+          return fetch(url, {
+              method: method,
+              headers: {
+                  'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(data)
+          }).then(r => {
+              if (!r.ok) {
+                  return r.json().then(data => alert(JSON.stringify(data)));
+              };
+              return r.json();
+          });
+      };
+
+      $("#wallets").jsGrid({
+          width: "100%",
+          height: "32%",
+
+          autoload: true,
+          pageLoading: false,
+
+          inserting: true,
+          editing: false,
+          confirmDeleting: true,
+          deleteConfirm: "Delete this wallet?",
+          paging: true,
+          pageSize: 5,
+
+          fields: [
+              {name: "id", type: "number", align: "center", title: "Id", inserting: false},
+              {
+                  name: "currency_id", type: "select", align: "center", items: currencies,
+                  valueField: 'id', textField: 'name', valueType: "number", title: "Currency"
+              },
+              {name: "amount", type: "text", align: "center", title: "Amount",inserting: false},
+              {type: "control", deleteButton: false, editButton: false}
+          ],
+          controller: {
+              loadData: (filter) => {
+                  return fetch('/wallets?' + $.param(filter)).then(r => r.json());
+              },
+              insertItem: (data) => {
+                  return post_data('/wallet', data);
+              },
+              deleteItem: (wallet) => {
+                  const wallet_id = wallet['id'];
+                  if (wallet['amount'] == 0) {
+                      return post_data(`/wallet/${wallet_id}`, {}, method = 'DELETE');
+                  };
+                  throw "Can't delete non-empty wallet";
+              }
+          }
+      });
+
+      $("#invoices").jsGrid({
+          width: "100%",
+          height: "30%",
+
+          autoload: true,
+          pageLoading: true,
+          inserting: true,
+          editing: false,
+
+          fields: [
+              {name: "id", type: "number", align: "center", title: "Id", inserting: false},
+              {name: "to_wallet_id", type: "number", align: "center", title: "Wallet Id", inserting: true},
+              {
+                  name: "url", type: "string", align: "center", title: "Pay URL", width: "40%",
+                  inserting: false
+              },
+              {name: "amount", type: "text", align: "center", title: "Amount", inserting: true},
+              {
+                  name: "status", type: "select", align: "center", inserting: false,
+                  items: [{name: "pending"}, {name: "incomplete"}, {name: "complete"}],
+                  valueField: 'name', textField: 'name', valueType: "text", title: "Status"
+              },
+              {type: "control", deleteButton: false, editButton: false}
+          ],
+          controller: {
+              loadData: (filter) => {
+                  return fetch('/invoices?' + $.param(filter)).then(r => r.json()).then(r => {
+                      for (let i = 0; i < r.data.length; i++)
+                          r.data[i]['url'] = "{{ pay_url }}" + r.data[i]["token"];
+                      return r;
+                  });
+              },
+              insertItem: (data) => {
+                  return post_data('/invoice', data);
+              },
+          }
+      });
+
+      $("#transactions").jsGrid({
+          width: "100%",
+          height: "30%",
+
+          autoload: true,
+          pageLoading: true,
+          inserting: false,
+          editing: false,
+
+          fields: [
+              {title: "Id", name: "id", type: "number", align: "center"},
+              {title: "Invoice Id", name: "invoice_id", type: "number", align: "center"},
+              {title: "Token", name: "token", type: "text", align: "center", width: "40%"},
+              {title: "Amount", name: "amount", type: "text", align: "center"},
+              {title: "Status", name: "status", type: "number", align: "center"},
+          ],
+
+          controller: {
+              loadData: (filter) => {
+                  return fetch('/transactions?' + $.param(filter)).then(r => r.json());
+              }
+          }
+      });
+    </script>
+
+  </body>
+</html>

@@ -4,10 +4,11 @@ from fastapi import Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 from bcrypt import checkpw
 
 from settings.core import ROOT
-from models.core import Session, engine
+from models.core import engine
 from models.accounts import Staff, Merchant
 
 

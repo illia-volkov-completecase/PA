@@ -12,9 +12,6 @@ services:
     - type: bind
       source: ./src
       target: /srv/billing/src
-    - type: bind
-      source: ./manage
-      target: /srv/billing/manage
     env_file:
       - .env
     restart: on-failure

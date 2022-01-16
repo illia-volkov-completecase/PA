@@ -7,6 +7,9 @@ from sqlalchemy import pool
 
 from alembic import context
 
+from settings import SYNC_DRIVER, DATABASE_URL
+
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -14,8 +17,7 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 fileConfig(config.config_file_name)
-DATABASE_URL = environ['DATABASE_URL']
-SYNC_DRIVER = environ['SYNC_DRIVER']
+
 config.set_main_option('sqlalchemy.url', f'{SYNC_DRIVER}:{DATABASE_URL}')
 
 # add your model's MetaData object here

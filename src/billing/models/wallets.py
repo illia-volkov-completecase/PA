@@ -5,7 +5,7 @@ from pydantic import condecimal
 from sqlalchemy import UniqueConstraint, Column, Enum
 
 from .accounts import Merchant
-from .choices import CurrencyEnum
+from .choices import CurrencyCode
 
 
 class Currency(SQLModel, table=True):
@@ -13,7 +13,7 @@ class Currency(SQLModel, table=True):
     __table_args__ = (UniqueConstraint('code', name='uniq_currency'),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    code: str = Field(sa_column=Column(Enum(CurrencyEnum)), )
+    code: str = Field(sa_column=Column(Enum(CurrencyCode)))
 
 
 class Wallet(SQLModel, table=True):

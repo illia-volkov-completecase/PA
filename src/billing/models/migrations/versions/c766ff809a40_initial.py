@@ -36,7 +36,7 @@ def upgrade():
         'currency',
         sa.UniqueConstraint('code', name='uniq_currency'),
         sa.Column('id', sa.Integer, primary_key=True),
-        sa.Column('code', sa.Enum('usd', 'uah', 'eur', 'gbp', name='currencyenum'))
+        sa.Column('code', sa.Enum('usd', 'uah', 'eur', 'gbp', name='currencycode'))
     )
     op.create_table(
         'wallet',
@@ -62,7 +62,7 @@ def upgrade():
         sa.Column('id', sa.Integer, primary_key=True),
         sa.Column('token', sa.String(36), index=True),
         sa.Column('amount', sa.Numeric(precision=20, scale=3), nullable=False),
-        sa.Column('status', sa.Enum('pending', 'incomplete', 'complete', name='invoicestatusenum')),
+        sa.Column('status', sa.Enum('pending', 'incomplete', 'complete', name='invoicestatus')),
         sa.Column('to_wallet_id', sa.Integer, sa.ForeignKey('wallet.id'), nullable=False),
     )
     op.create_table(
@@ -77,27 +77,38 @@ def upgrade():
         sa.Column('id', sa.Integer, primary_key=True),
         sa.Column('token', sa.String(36), index=True),
         sa.Column('amount', sa.Numeric(precision=20, scale=3), nullable=False),
-        sa.Column('status', sa.Enum('pending', 'success', 'fail', 'error', 'canceled', name='transactionstatusenum')),
-        sa.Column('response', sa.Text, nullable=False),
-        sa.Column('payment_system_id', sa.Integer, sa.ForeignKey('payment_system.id'), nullable=False),
+        sa.Column('effective_amount', sa.Numeric(precision=20, scale=3), nullable=False),
+        sa.Column('status',
+                  sa.Enum('pending', 'success', 'fail', 'refunded', name='transactionstatus')),
         sa.Column('invoice_id', sa.Integer, sa.ForeignKey('invoice.id'), nullable=False)
+    )
+    op.create_table(
+        'attempt',
+        sa.Column('id', sa.Integer, primary_key=True),
+        sa.Column('token', sa.String(36), index=True),
+        sa.Column('response', sa.Text, nullable=False, default=''),
+        sa.Column('status', sa.Enum('pending', 'success', 'fail', name='attemptstatus')),
+        sa.Column('transaction_id', sa.Integer, sa.ForeignKey('transaction.id'), nullable=False),
+        sa.Column('payment_system_id', sa.Integer, sa.ForeignKey('payment_system.id'), nullable=False)
     )
 
 
 def downgrade():
     # transaction
+    op.drop_table('attempt')
     op.drop_table('transaction')
     op.drop_table('payment_system')
     op.drop_table('invoice')
-    op.execute('DROP TYPE invoicestatusenum')
+    op.execute('DROP TYPE invoicestatus')
     op.execute('DROP TYPE paymentsystemtype')
-    op.execute('DROP TYPE transactionstatusenum')
+    op.execute('DROP TYPE transactionstatus')
+    op.execute('DROP TYPE attemptstatus')
 
     # wallets
     op.drop_table('conversion_rate')
     op.drop_table('wallet')
     op.drop_table('currency')
-    op.execute('DROP TYPE currencyenum')
+    op.execute('DROP TYPE currencycode')
 
     # accounts
     op.drop_table('merchant')
