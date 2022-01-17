@@ -209,3 +209,139 @@ def test_transaction_conversion(session):
         imanager.fetch()
         assert imanager.paid_amount == Decimal('30')
         assert imanager.invoice.status == InvoiceStatus.complete
+
+
+def test_internal_transaction(session):
+    uah = session.query(Currency).filter(Currency.code == 'uah').first()
+
+    merchant1 = add_user(Merchant, 'test_internal_transaction1', 'test')
+    merchant2 = add_user(Merchant, 'test_internal_transaction2', 'test')
+
+    wallet1 = Wallet(merchant_id=merchant1.id, currency_id=uah.id)
+    session.add(wallet1)
+    session.commit()
+
+    wallet2 = Wallet(merchant_id=merchant2.id, currency_id=uah.id, amount=Decimal('100'))
+    session.add(wallet2)
+    session.commit()
+
+    invoice = Invoice(
+        amount=Decimal('20'),
+        from_currency_id=uah.id,
+        to_wallet_id=wallet2.id
+    )
+    session.add(invoice)
+    session.commit()
+
+    with InvoiceManager(invoice.id) as manager:
+        transaction = manager.pay_with_wallet(
+            merchant_id=merchant1.id,
+            wallet_id=wallet1.id,
+            effective_amount=Decimal('10')
+        )
+    assert transaction
+    assert transaction.id
+    assert transaction.status == TransactionStatus.fail
+    assert InvoiceStatus.incomplete == session.query(Invoice.status)\
+                                              .filter(Invoice.id == invoice.id)\
+                                              .scalar()
+
+    wallet1.amount = Decimal('100')
+    session.add(wallet1)
+    session.commit()
+
+    with InvoiceManager(invoice.id) as manager:
+        transaction = manager.pay_with_wallet(
+            merchant_id=merchant1.id,
+            wallet_id=wallet1.id,
+            effective_amount=Decimal('10')
+        )
+    assert transaction
+    assert transaction.id
+    assert transaction.status == TransactionStatus.success
+    assert InvoiceStatus.incomplete == session.query(Invoice.status)\
+                                              .filter(Invoice.id == invoice.id)\
+                                              .scalar()
+
+    with InvoiceManager(invoice.id) as manager:
+        manager.fetch()
+        assert manager.paid_amount == Decimal('10')
+        assert manager.unpaid_amount == Decimal('10')
+
+    with InvoiceManager(invoice.id) as manager:
+        transaction = manager.pay_with_wallet(
+            merchant_id=merchant1.id,
+            wallet_id=wallet1.id,
+            effective_amount=Decimal('10')
+        )
+    assert transaction
+    assert transaction.id
+    assert transaction.status == TransactionStatus.success
+    assert InvoiceStatus.complete == session.query(Invoice.status)\
+                                            .filter(Invoice.id == invoice.id)\
+                                            .scalar()
+
+    assert Decimal('80') == session.query(Wallet.amount)\
+        .filter(Wallet.id == wallet1.id)\
+        .scalar()
+
+    assert Decimal('120') == session.query(Wallet.amount)\
+        .filter(Wallet.id == wallet2.id)\
+        .scalar()
+
+
+def test_internal_transaction_conversion(session):
+    uah = session.query(Currency).filter(Currency.code == 'uah').first()
+    usd = session.query(Currency).filter(Currency.code == 'usd').first()
+
+    merchant1 = add_user(Merchant, 'test_internal_transaction_conversion1', 'test')
+    merchant2 = add_user(Merchant, 'test_internal_transaction_conversion2', 'test')
+
+    wallet1 = Wallet(merchant_id=merchant1.id, currency_id=usd.id, amount=Decimal('100'))
+    session.add(wallet1)
+    session.commit()
+
+    wallet2 = Wallet(merchant_id=merchant2.id, currency_id=uah.id, amount=Decimal('100'))
+    session.add(wallet2)
+    session.commit()
+
+    cr = get_or_create(
+        ConversionRate,
+        session=session,
+        from_currency_id=uah.id, to_currency_id=usd.id,
+        defaults=dict(rate=Decimal('20'), allow_reversed=True)
+    )
+    cr.rate = Decimal('20')
+    cr.allow_reversed = True
+    session.add(cr)
+    session.commit()
+
+    invoice = Invoice(
+        amount=Decimal('100'),
+        from_currency_id=uah.id,
+        to_wallet_id=wallet2.id
+    )
+    session.add(invoice)
+    session.commit()
+
+    with InvoiceManager(invoice.id) as manager:
+        transaction = manager.pay_with_wallet(
+            merchant_id=merchant1.id,
+            wallet_id=wallet1.id,
+            effective_amount=Decimal('100')
+        )
+    assert transaction
+    assert transaction.id
+    assert transaction.status == TransactionStatus.success
+    assert InvoiceStatus.complete == session.query(Invoice.status)\
+                                            .filter(Invoice.id == invoice.id)\
+                                            .scalar()
+
+
+    assert Decimal('95') == session.query(Wallet.amount)\
+                                   .filter(Wallet.id == wallet1.id)\
+                                   .scalar()
+
+    assert Decimal('200') == session.query(Wallet.amount)\
+                                    .filter(Wallet.id == wallet2.id)\
+                                    .scalar()

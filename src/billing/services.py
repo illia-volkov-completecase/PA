@@ -15,7 +15,8 @@ from sqlalchemy.sql import func
 from models.core import session, serializable_session
 from models.wallets import Wallet, Currency, ConversionRate
 from models.transactions import PaymentSystem, Invoice, Transaction, Attempt
-from models.choices import InvoiceStatus, TransactionStatus, AttemptStatus, PaymentSystemType
+from models.choices import InvoiceStatus, TransactionStatus, AttemptStatus,\
+    PaymentSystemType, TransactionType
 from settings.core import HOSTNAME
 
 DAY: int = 60 * 60 * 24
@@ -156,44 +157,97 @@ class InvoiceManager(BaseManager):
     ):
         self.fetch()
 
-        if not (rate := calculate_conv_rate(currency_id, self.wallet.currency_id)):
-            return None
+        if (rate := calculate_conv_rate(currency_id, self.wallet.currency_id)) is None:
+            return
 
-        if (pair := self.calculate_amounts(amount, effective_amount, rate)) is not None:
-            amount, effective_amount = pair
+        if (pair := self.calculate_amounts(amount, effective_amount, rate)) is None:
+            return
 
-        if effective_amount is None:
-            effective_amount = self.unpaid_amount
-        elif effective_amount > self.unpaid_amount:
-            return None
+        amount, effective_amount = pair
 
         transaction = Transaction(
             effective_amount=effective_amount,
+            amount=amount,
             invoice_id=self.invoice.id
         )
         # sometimes passing amount in constructor don't work
-        transaction.amount = effective_amount * rate
+        transaction.amount = amount
         self.session.add(transaction)
         self.session.commit()
 
         return transaction
 
+    def pay_with_wallet(
+            self,
+            merchant_id: int,
+            wallet_id: int,
+            amount: Optional[Decimal] = None,
+            effective_amount: Optional[Decimal] = None
+    ):
+        self.fetch()
+        from_wallet = self.session.query(Wallet)\
+                                  .filter(Wallet.merchant_id == merchant_id)\
+                                  .filter(Wallet.id == wallet_id)\
+                                  .with_for_update()\
+                                  .one()
+
+        if not (rate := calculate_conv_rate(from_wallet.currency_id, self.wallet.currency_id)):
+            return None
+
+        if (pair := self.calculate_amounts(amount, effective_amount, rate)) is None:
+            return
+
+        amount, effective_amount = pair
+
+        transaction = Transaction(
+            effective_amount=effective_amount,
+            amount=amount,
+            invoice_id=self.invoice.id,
+            from_wallet_id=from_wallet.id,
+            transaction_type=TransactionType.internal,
+            status=TransactionStatus.pending
+        )
+        self.invoice.status = InvoiceStatus.incomplete
+        self.session.add(self.invoice)
+        self.session.commit()
+
+        try:
+            if from_wallet.amount >= amount:
+                from_wallet.amount -= amount
+                self.wallet.amount += effective_amount
+                transaction.status = TransactionStatus.success
+                if effective_amount >= self.unpaid_amount:
+                    self.invoice.status = InvoiceStatus.complete
+                self.session.add_all((self.invoice, from_wallet, self.wallet, transaction))
+                self.session.commit()
+            else:
+                transaction.status = TransactionStatus.fail
+                self.session.add(transaction)
+                self.session.commit()
+        except:
+            transaction.status = TransactionStatus.fail
+            self.session.add(transaction)
+            self.session.commit()
+
+        return transaction
+
     def calculate_amounts(self, amount, effective_amount, rate):
         if amount is not None:
-            return (amount, amount * rate)
+            effective_amount = effective_amount / rate
+            if effective_amount > self.unpaid_amount:
+                return None
+            return (amount, effective_amount)
         elif effective_amount is not None:
-            return (effective_amount / rate, effective_amount)
+            amount = effective_amount * rate
+            if effective_amount > self.unpaid_amount:
+                return None
+            return (amount, effective_amount)
         else:
             return None
 
     def get_payment_info(self):
         self.fetch()
-        currencies = dict(self.session.query(Currency.id, Currency.code).all())
-        rates = calculate_rates(self.wallet.currency_id)
-        rates = [{
-            'id': id, 'name': currencies[id], 'amount': rate * self.unpaid_amount
-        } for id, rate in rates.items()]
-        return rates
+        return {'wallet_id': self.invoice.id, 'currency_id': self.wallet.currency_id}
 
 
 class TransactionManager(BaseManager):
@@ -308,14 +362,13 @@ class AttemptManager(BaseManager):
                         .filter(Invoice.id == Transaction.invoice_id)\
                         .with_for_update()\
                         .one()
-        self.other_paid_transactions = self.session.query(Transaction)\
-                                                   .filter(
-                                                       Transaction.invoice_id == self.invoice.id,
-                                                       Transaction.id != self.transaction.id,
-                                                       Transaction.status == TransactionStatus.success
-                                                   )\
-                                                   .with_for_update()\
-                                                   .all()
+        self.other_paid_transactions = \
+            self.session.query(Transaction)\
+                        .filter(Transaction.invoice_id == self.invoice.id)\
+                        .filter(Transaction.id != self.transaction.id)\
+                        .filter(Transaction.status == TransactionStatus.success)\
+                        .with_for_update()\
+                        .all()
 
     def __update(self):
         self.session.add_all((self.attempt, self.transaction, self.invoice))

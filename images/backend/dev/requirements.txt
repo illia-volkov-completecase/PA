@@ -16,3 +16,4 @@ requests==2.27.1
 networkx==2.6.3
 cachetools==5.0.0
 cryptography==36.0.1
+pgcli==3.3.0

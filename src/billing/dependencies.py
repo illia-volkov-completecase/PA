@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
@@ -14,7 +14,7 @@ from models.accounts import Staff, Merchant
 
 static_files = StaticFiles(directory=ROOT / 'static')
 templates = Jinja2Templates(directory=ROOT / 'templates')
-security = HTTPBasic()
+security = HTTPBasic(auto_error=False)
 
 
 def paging(pageIndex: Optional[int] = None, pageSize: Optional[int] = None):
@@ -31,6 +31,9 @@ def try_get_merchant(
         credentials: HTTPBasicCredentials = Depends(security),
         session: Session = Depends(db_session)
 ):
+    if credentials is None:
+        return
+
     q = Merchant.username == credentials.username
     if merchant := session.query(Merchant).filter(q).first():
         if checkpw(credentials.password.encode(), merchant.password.encode()):
@@ -51,6 +54,9 @@ def try_get_staff(
         credentials: HTTPBasicCredentials = Depends(security),
         session: Session = Depends(db_session)
 ):
+    if credentials is None:
+        return
+
     q = Staff.username == credentials.username
     if staff := session.query(Staff).filter(q).first():
         if checkpw(credentials.password.encode(), staff.password.encode()):
@@ -67,7 +73,7 @@ def get_staff(staff: Staff = Depends(try_get_staff)):
     return staff
 
 
-def get_user(
+def try_get_user(
         staff: Optional[Staff] = Depends(try_get_staff),
         merchant: Optional[Merchant] = Depends(try_get_merchant)
 ):
@@ -75,6 +81,13 @@ def get_user(
         return staff
     elif merchant:
         return merchant
+
+
+def get_user(
+        user: Union[Staff, Merchant, None] = Depends(try_get_user)
+):
+    if user:
+        return user
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -1,0 +1,3 @@
+#!/bin/sh
+args="$@"
+docker-compose exec billing bash -c "source /srv/billing/venv/bin/activate && /srv/billing/src/billing/manage.py $args"

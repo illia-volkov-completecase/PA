@@ -16,22 +16,11 @@ def alembic(*args):
         print(err.strip())
         print(out.strip())
         exit(code)
-a = alembic
+
 
 def runserver(host='0.0.0.0', port=8000):
     from uvicorn import run
     run('main:app', host=host, port=port)
-r = runserver
-
-def add_user(model):
-    from models.accounts import Staff, Merchant
-    from misc import add_user
-
-    model = {'staff': Staff, 'merchant': Merchant}[model]
-
-    username = input('username: ')
-    password = input('password: ')
-    add_user(model, username, password)
 
 
 def shell():
@@ -46,13 +35,31 @@ def shell():
     except ImportError:
         import code
         code.InteractiveConsole(locals=locals()).interact()
-s = shell
+
+
+def dbshell():
+    from plumbum import local, FG
+
+    from models.settings import DATABASE_URL
+
+    pgcli = local['pgcli']
+    pgcli[f'postgresql:{DATABASE_URL}'] & FG
 
 
 def test(*args):
     from _pytest.config import main
     exit(main(args=['-sss', *args]))
-t = test
+
+
+def add_user(model):
+    from models.accounts import Staff, Merchant
+    from misc import add_user
+
+    model = {'staff': Staff, 'merchant': Merchant}[model]
+
+    username = input('username: ')
+    password = input('password: ')
+    add_user(model, username, password)
 
 
 def emulate_response(attempt_id, hostname=None):
@@ -96,6 +103,12 @@ def emulate_response(attempt_id, hostname=None):
         print(f'status code: {response.status_code}')
         print(f'body: {response.content}')
 
+
+a = alembic
+r = runserver
+s = shell
+db = dbshell
+t = test
 
 if __name__ == '__main__':
     fire.Fire()

@@ -6,7 +6,8 @@ from sqlalchemy.orm import relationship
 from pydantic import condecimal
 
 from .wallets import Wallet, Currency
-from .choices import InvoiceStatus, TransactionStatus, AttemptStatus, PaymentSystemType
+from .choices import InvoiceStatus, TransactionStatus, AttemptStatus,\
+    PaymentSystemType, TransactionType
 
 
 class Invoice(SQLModel, table=True):
@@ -19,7 +20,7 @@ class Invoice(SQLModel, table=True):
     status: str = Field(sa_column=Column(Enum(InvoiceStatus)), default=TransactionStatus.pending)
 
     to_wallet_id: int = Field(default=None, nullable=False, foreign_key='wallet.id')
-    to_wallet: Wallet = Relationship(sa_relationship_kwargs={'foreign_keys': 'Invoice.to_wallet_id'})
+    to_wallet: Wallet = Relationship()
 
 
 class PaymentSystem(SQLModel, table=True):
@@ -35,6 +36,10 @@ class Transaction(SQLModel, table=True):
     __tablename__ = 'transaction'
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    transaction_type = Field(
+        sa_column=Column(Enum(TransactionType)),
+        default=TransactionType.external
+    )
     # token is exposed to user
     token: UUID = Field(default_factory=uuid4, index=True, sa_column=Column(String(36)))
     amount: condecimal(max_digits=20, decimal_places=3)
@@ -44,6 +49,9 @@ class Transaction(SQLModel, table=True):
 
     invoice_id: int = Field(default=None, nullable=False, foreign_key='invoice.id')
     invoice: Invoice = Relationship()
+
+    from_wallet_id: int = Field(default=None, nullable=True, foreign_key='wallet.id')
+    from_wallet: Wallet = Relationship()
 
 
 class Attempt(SQLModel, table=True):

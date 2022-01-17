@@ -75,12 +75,14 @@ def upgrade():
     op.create_table(
         'transaction',
         sa.Column('id', sa.Integer, primary_key=True),
+        sa.Column('transaction_type', sa.Enum('external', 'internal', name='transactiontype')),
         sa.Column('token', sa.String(36), index=True),
         sa.Column('amount', sa.Numeric(precision=20, scale=3), nullable=False),
         sa.Column('effective_amount', sa.Numeric(precision=20, scale=3), nullable=False),
         sa.Column('status',
                   sa.Enum('pending', 'success', 'fail', 'refunded', name='transactionstatus')),
-        sa.Column('invoice_id', sa.Integer, sa.ForeignKey('invoice.id'), nullable=False)
+        sa.Column('invoice_id', sa.Integer, sa.ForeignKey('invoice.id'), nullable=False),
+        sa.Column('from_wallet_id', sa.Integer, sa.ForeignKey('wallet.id'), nullable=True)
     )
     op.create_table(
         'attempt',

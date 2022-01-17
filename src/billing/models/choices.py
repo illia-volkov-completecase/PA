@@ -25,6 +25,11 @@ class TransactionStatus(str, Enum):
     refunded = 'refunded'
 
 
+class TransactionType(str, Enum):
+    external = 'external'
+    internal = 'internal'
+
+
 class AttemptStatus(str, Enum):
     pending = 'pending'
     success = 'success'

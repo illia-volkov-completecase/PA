@@ -8,26 +8,30 @@ from bcrypt import hashpw, gensalt
 
 from models.core import session as main_session
 from models.accounts import Staff, Merchant
+from models.transactions import Invoice, Transaction
 
 
 class PaginatedMeta(type):
     __cache = {}
 
     def __getitem__(cls, key):
-        if NewCls := cls.__cache.get(key):
-            return NewCls
+        if ret := cls.__cache.get(key):
+            return ret
 
-        class NewCls(BaseModel):
-            data: list[key]
-            itemsCount: int
+        def from_queryset(cls, queryset, offset, limit):
+            data = queryset.offset(offset).limit(limit).all()
+            return {'data': data, 'itemsCount': len(data)}
 
-            @classmethod
-            def from_queryset(cls, queryset, offset, limit):
-                data = queryset.offset(offset).limit(limit).all()
-                return {'data': data, 'itemsCount': len(data)}
+        ret = type(key.__name__, (BaseModel,), {
+            '__annotations__': {
+                'data': list[key],
+                'itemsCount': int
+            },
+            'from_queryset': classmethod(from_queryset)
+        })
 
-        cls.__cache[key] = NewCls
-        return NewCls
+        cls.__cache[key] = ret
+        return ret
 
 
 class Paginated(metaclass=PaginatedMeta):
@@ -37,6 +41,9 @@ class Paginated(metaclass=PaginatedMeta):
 def get_or_create(model, session=None, defaults=None, **kwargs):
     if session is None:
         session = main_session()
+
+    if defaults is None:
+        defaults = {}
 
     with session as s:
         try:

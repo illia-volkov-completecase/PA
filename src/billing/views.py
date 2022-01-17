@@ -11,7 +11,8 @@ from settings.core import ROOT, HOSTNAME
 from models.accounts import Merchant, Staff
 from models.wallets import Wallet, Currency
 from models.transactions import Invoice, Transaction, PaymentSystem
-from dependencies import get_user, get_merchant, db_session as db, paging, templates
+from dependencies import get_user, get_merchant, db_session as db, \
+    paging, templates, try_get_merchant
 from misc import Paginated
 from services import *
 
@@ -34,7 +35,8 @@ class WalletTransferRequest(BaseModel):
 
 class CreateTransactionRequest(BaseModel):
     amount: str
-    currency_id: int
+    currency_id: Optional[int]
+    from_wallet_id: Optional[int]
 
 
 class CreateAttemptRequest(BaseModel):
@@ -88,7 +90,7 @@ def currencies(session: Session = Depends(db)):
 
 @router.get('/rates/{from_currency_id}')
 def rates(from_currency_id: int, session: Session = Depends(db)):
-    return calculate_rates(from_currency_id)
+    return {'rates': calculate_rates(from_currency_id)}
 
 
 @router.get('/wallets', response_model=list[Wallet])
@@ -161,18 +163,71 @@ def get_payment_info_invoice(
 def create_transaction(
         token: str,
         transaction_request: CreateTransactionRequest,
-        session: Session = Depends(db)
+        session: Session = Depends(db),
+        merchant: Optional[User] = Depends(try_get_merchant)
 ):
-    invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+    merchant = session.query(Merchant).one()
+    if merchant:
+        invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+        return create_internal_transaction(merchant.id, invoice_id, transaction_request)
+    else:
+        invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+        return create_external_transaction(invoice_id, transaction_request)
+
+
+def create_internal_transaction(
+        merchant_id,
+        invoice_id,
+        request
+):
+    if request.from_wallet_id is None:
+        detail = {
+            "loc": ["body", "from_wallet_id"],
+            "msg": "field required for internal transactions",
+            "type": "value_error.missing"
+        }
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={'detail': [detail]}
+        )
+
+    with InvoiceManager(invoice_id) as manager:
+        transaction = manager.pay_with_wallet(
+            merchant_id=merchant_id,
+            wallet_id=request.from_wallet_id,
+            effective_amount=Decimal(request.amount)
+        )
+        if transaction:
+            return {'transaction': transaction.id, 'status': transaction.status}
+        return {'error': 'transaction creation failed'}
+
+
+def create_external_transaction(
+        invoice_id,
+        request
+):
+    if request.currency_id is None:
+        detail = {
+            "loc": ["body", "currency_id"],
+            "msg": "field required for external transactions",
+            "type": "value_error.missing"
+        }
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={'detail': [detail]}
+        )
+
     with InvoiceManager(invoice_id) as manager:
         transaction = manager.create_transaction(
-            currency_id=transaction_request.currency_id,
-            amount=Decimal(transaction_request.amount)
+            currency_id=request.currency_id,
+            amount=Decimal(request.amount)
         )
-    return {
-        'token': transaction.token,
-        'attempt': urljoin(HOSTNAME, f'/attempt/{transaction.token}')
-    }
+        if transaction:
+            return {
+                'token': transaction.token,
+                'attempt': urljoin(HOSTNAME, f'/attempt/{transaction.token}')
+            }
+        return {'error': 'transaction creation failed'}
 
 
 @router.get('/attempt/{token}')
