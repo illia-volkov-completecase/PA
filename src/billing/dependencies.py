@@ -1,14 +1,15 @@
 from typing import Optional, Union
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Request, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from bcrypt import checkpw
 
 from settings.core import ROOT
-from models.core import engine
+from models.core import session
 from models.accounts import Staff, Merchant
 
 
@@ -24,7 +25,8 @@ def paging(pageIndex: Optional[int] = None, pageSize: Optional[int] = None):
 
 
 def db_session():
-    return Session(engine)
+    with session() as s:
+        yield s
 
 
 def try_get_merchant(
@@ -93,4 +95,14 @@ def get_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect credentials",
             headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+async def on_internal_error(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"exc_type": str(type(e)), "exc": str(e)},
         )

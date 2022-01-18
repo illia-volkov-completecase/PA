@@ -2,29 +2,26 @@ import json
 from uuid import uuid4
 from typing import Optional, Union
 from decimal import Decimal
-from collections import defaultdict
-from urllib.parse import urljoin
+from contextvars import ContextVar
 
 import networkx as nx
 from networkx.algorithms.shortest_paths.generic import shortest_path
-from networkx.algorithms.shortest_paths.weighted import single_source_dijkstra_path
+from networkx.algorithms.shortest_paths.weighted import\
+    single_source_dijkstra_path
 from cachetools.func import ttl_cache
 from cryptography.fernet import Fernet
-from sqlalchemy.sql import func
 
 from models.core import session, serializable_session
 from models.wallets import Wallet, Currency, ConversionRate
 from models.transactions import PaymentSystem, Invoice, Transaction, Attempt
 from models.choices import InvoiceStatus, TransactionStatus, AttemptStatus,\
     PaymentSystemType, TransactionType
-from settings.core import HOSTNAME
+
 
 DAY: int = 60 * 60 * 24
 
 
-@ttl_cache(maxsize=None, ttl=DAY)
-def calculate_conv_rate(from_: int, to: int) -> Optional[Decimal]:
-    '''
+'''
     suppose we have following conv rate config
 
     uah -----> usd
@@ -45,8 +42,9 @@ def calculate_conv_rate(from_: int, to: int) -> Optional[Decimal]:
     finding cheapest conversion rate from uah to eur essentially
     means finding shortest path in graph whose nodes represent
     currencies, while edges represent conversion rates
-    '''
-
+'''
+@ttl_cache(maxsize=None, ttl=DAY)
+def calculate_conv_rate(from_: int, to: int) -> Optional[Decimal]:
     if from_ == to:
         return Decimal('1')
 
@@ -90,7 +88,10 @@ def _get_conversion_rate_graph(_: Optional[str] = None) -> nx.DiGraph:
         for cr in s.query(ConversionRate).all():
             G.add_edge(cr.from_currency_id, cr.to_currency_id, weight=cr.rate)
             if cr.allow_reversed:
-                G.add_edge(cr.to_currency_id, cr.from_currency_id, weight=Decimal('1') / cr.rate)
+                G.add_edge(
+                    cr.to_currency_id, cr.from_currency_id,
+                    weight=Decimal('1') / cr.rate
+                )
 
     return G
 
@@ -112,17 +113,33 @@ def calculate_rates(from_currency_id: int):
     return paths
 
 
+# to safely nest managers
+manager_session = ContextVar('manager_session')
+
+
 class BaseManager:
+    '''
+    Managers works as a service classes to invoices, payments & payment attempts
+    They designed to be used as context managers. Main operations lock selected rows.
+    '''
+
     def __init__(self):
         self.session = None
+        self._token = None
 
     def __enter__(self):
-        self.session = serializable_session().__enter__()
-        self.session.__enter__()
+        try:
+            self.session = manager_session.get()
+        except LookupError:
+            session = serializable_session()
+            session.__enter__()
+            self._token = manager_session.set(session)
+            self.session = session
         return self
 
     def __exit__(self, *args):
-        return self.session.__exit__(*args)
+        if self._token:
+            return self.session.__exit__(*args)
 
 
 class InvoiceManager(BaseManager):
@@ -135,18 +152,18 @@ class InvoiceManager(BaseManager):
         super().__init__()
 
     def fetch(self):
-        self.wallet, self.invoice = self.session.query(Wallet, Invoice)\
-                                                .filter(Wallet.id == Invoice.to_wallet_id)\
-                                                .filter(Invoice.id == self.invoice_id)\
-                                                .with_for_update()\
-                                                .one()
-        paid_transactions = self.session.query(Transaction)\
-                                        .filter(
-                                            Transaction.invoice_id == self.invoice_id,
-                                            Transaction.status == TransactionStatus.success
-                                        )\
-                                        .with_for_update()\
-                                        .all()
+        self.wallet, self.invoice =\
+            self.session.query(Wallet, Invoice)\
+                        .filter(Wallet.id == Invoice.to_wallet_id)\
+                        .filter(Invoice.id == self.invoice_id)\
+                        .with_for_update()\
+                        .one()
+        paid_transactions =\
+            self.session.query(Transaction)\
+                        .filter(Transaction.invoice_id == self.invoice_id)\
+                        .filter(Transaction.status == TransactionStatus.success)\
+                        .with_for_update()\
+                        .all()
         self.paid_amount = sum(t.effective_amount for t in paid_transactions)
         self.unpaid_amount = self.invoice.amount - self.paid_amount
 
@@ -172,6 +189,7 @@ class InvoiceManager(BaseManager):
         )
         # sometimes passing amount in constructor don't work
         transaction.amount = amount
+        transaction.effective_amount = effective_amount
         self.session.add(transaction)
         self.session.commit()
 
@@ -207,6 +225,9 @@ class InvoiceManager(BaseManager):
             transaction_type=TransactionType.internal,
             status=TransactionStatus.pending
         )
+        # sometimes passing amount in constructor don't work
+        transaction.amount = amount
+        transaction.effective_amount = effective_amount
         self.invoice.status = InvoiceStatus.incomplete
         self.session.add(self.invoice)
         self.session.commit()
@@ -224,7 +245,7 @@ class InvoiceManager(BaseManager):
                 transaction.status = TransactionStatus.fail
                 self.session.add(transaction)
                 self.session.commit()
-        except:
+        except:  # noqa
             transaction.status = TransactionStatus.fail
             self.session.add(transaction)
             self.session.commit()
@@ -233,7 +254,7 @@ class InvoiceManager(BaseManager):
 
     def calculate_amounts(self, amount, effective_amount, rate):
         if amount is not None:
-            effective_amount = effective_amount / rate
+            effective_amount = amount / rate
             if effective_amount > self.unpaid_amount:
                 return None
             return (amount, effective_amount)
@@ -247,28 +268,41 @@ class InvoiceManager(BaseManager):
 
     def get_payment_info(self):
         self.fetch()
-        return {'wallet_id': self.invoice.id, 'currency_id': self.wallet.currency_id}
+        return {
+            'wallet_id': self.invoice.to_wallet_id,
+            'currency_id': self.wallet.currency_id,
+            'amount': self.invoice.amount,
+            'paid': self.paid_amount,
+            'unpaid': self.unpaid_amount
+        }
 
 
 class TransactionManager(BaseManager):
     def __init__(self, transaction_id: int):
         self.transaction_id = transaction_id
         self.transaction = None
-        self.invoice= None
+        self.invoice = None
         super().__init__()
 
-    def fetch(self, unpaid=False):
+    def fetch(self, paid=None, complete=None):
         # just lock
         queryset = self.session.query(Transaction, Invoice)\
                                .filter(Transaction.id == self.transaction_id)\
                                .filter(Invoice.id == Transaction.invoice_id)
-        if unpaid:
+        if paid is True:
+            queryset = queryset.filter(Transaction.status == TransactionStatus.success)
+        elif paid is False:
+            queryset = queryset.filter(Transaction.status != TransactionStatus.success)
+
+        if complete is True:
+            queryset = queryset.filter(Invoice.status == InvoiceStatus.complete)
+        elif complete is False:
             queryset = queryset.filter(Invoice.status != InvoiceStatus.complete)
 
         self.transaction, self.invoice = queryset.with_for_update().one()
 
     def create_attempt(self, payment_system_id: int):
-        self.fetch(unpaid=True)
+        self.fetch(complete=False)
         attempt = Attempt(
             transaction_id=self.transaction.id,
             payment_system_id=payment_system_id
@@ -278,17 +312,18 @@ class TransactionManager(BaseManager):
         return attempt
 
     def get_payment_info(self):
-        self.fetch(unpaid=True)
+        self.fetch(complete=False)
         systems = self.session.query(PaymentSystem).all()
         systems = [{'id': s.id, 'name': s.name, 'type': s.system_type} for s in systems]
         return systems
 
     def refund(self):
-        self.fetch()
+        self.fetch(paid=True)
         self.transaction.status = TransactionStatus.refunded
         self.invoice.status = InvoiceStatus.incomplete
         self.session.add_all((self.transaction, self.invoice))
         self.session.commit()
+        return self.transaction
 
 
 class AttemptManager(BaseManager):

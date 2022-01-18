@@ -25,27 +25,12 @@
           {{ payment_systems|safe }}
       ];
 
-      const post_data = (url, data = {}, method = 'POST') => {
-          return fetch(url, {
-              method: method,
-              headers: {
-                  'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(data)
-          }).then(r => {
-              if (!r.ok) {
-                  return r.json().then(data => alert(JSON.stringify(data)));
-              };
-              return r.json();
-          });
-      };
-
       $("#wallets").jsGrid({
           width: "100%",
           height: "32%",
 
           autoload: true,
-          pageLoading: false,
+          pageLoading: true,
 
           inserting: true,
           editing: false,

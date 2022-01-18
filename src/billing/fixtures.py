@@ -52,3 +52,8 @@ def load_payment_system(session):
         system_type=PaymentSystemType.visa,
         defaults=dict(decryption_key=key, name='visa')
     )
+
+
+def load_all(session):
+    load_currencies(session)
+    load_payment_system(session)

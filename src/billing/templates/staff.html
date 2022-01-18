@@ -4,7 +4,133 @@
     <link type="text/css" rel="stylesheet" href="/static/jsgrid-theme.min.css" />
     <script type="text/javascript" src="/static/jquery.min.js"></script>
     <script type="text/javascript" src="/static/jsgrid.min.js"></script>
+    <script type="text/javascript" src="/static/utils.js"></script>
   </head>
   <body>
+
+    Wallets
+    <div id="wallets"></div>
+
+    Invoices
+    <div id="invoices"></div>
+
+    Transactions
+    <div id="transactions"></div>
+
+    <script>
+      const currencies = [
+          {{ currencies|safe }}
+      ];
+      const payment_systems = [
+          {{ payment_systems|safe }}
+      ];
+
+      $("#wallets").jsGrid({
+          width: "100%",
+          height: "32%",
+
+          autoload: true,
+          pageLoading: true,
+
+          inserting: false,
+          editing: false,
+          confirmDeleting: true,
+          paging: true,
+          pageSize: 5,
+
+          fields: [
+              {name: "id", type: "number", align: "center", title: "Id", inserting: false},
+              {name: "merchant_id", type: "number", align: "center", title: "Merchant Id", inserting: false},
+              {
+                  name: "currency_id", type: "select", align: "center", items: currencies,
+                  valueField: 'id', textField: 'name', valueType: "number", title: "Currency"
+              },
+              {name: "amount", type: "text", align: "center", title: "Amount",inserting: false},
+          ],
+          controller: {
+              loadData: (filter) => {
+                  return fetch('/wallets?' + $.param(filter)).then(r => r.json());
+              }
+          }
+      });
+
+      $("#invoices").jsGrid({
+          width: "100%",
+          height: "30%",
+
+          autoload: true,
+          pageLoading: true,
+          inserting: false,
+          editing: false,
+
+          fields: [
+              {name: "id", type: "number", align: "center", title: "Id", inserting: false},
+              {name: "to_wallet_id", type: "number", align: "center", title: "Wallet Id", inserting: true},
+              {
+                  name: "url", type: "string", align: "center", title: "Pay URL", width: "40%",
+                  inserting: false
+              },
+              {name: "amount", type: "text", align: "center", title: "Amount", inserting: true},
+              {
+                  name: "status", type: "select", align: "center", inserting: false,
+                  items: [{name: "pending"}, {name: "incomplete"}, {name: "complete"}],
+                  valueField: 'name', textField: 'name', valueType: "text", title: "Status"
+              },
+          ],
+          controller: {
+              loadData: (filter) => {
+                  return fetch('/invoices?' + $.param(filter)).then(r => r.json()).then(r => {
+                      for (let i = 0; i < r.data.length; i++)
+                          r.data[i]['url'] = "{{ pay_url }}/" + r.data[i]["token"];
+                      return r;
+                  });
+              },
+          }
+      });
+
+      $("#transactions").jsGrid({
+          width: "100%",
+          height: "30%",
+
+          autoload: true,
+          pageLoading: true,
+          inserting: false,
+          editing: true,
+
+          fields: [
+              {title: "Id", name: "id", type: "number", align: "center", editing: false},
+              {title: "Invoice Id", name: "invoice_id", type: "number", align: "center", editing: false},
+              {title: "From wallet Id", name: "from_wallet_id", type: "text", align: "center", editing: false},
+              {title: "Token", name: "token", type: "text", align: "center", width: "40%", editing: false},
+              {title: "Type", name: "transaction_type", type: "text", align: "center", editing: false},
+              {title: "Amount", name: "amount", type: "text", align: "center", editing: false},
+              {
+                  name: "status", type: "select", align: "center", inserting: false,
+                  items: [
+                      {name: "pending"},
+                      {name: "success"},
+                      {name: "fail"},
+                      {name: "refunded"}
+                  ],
+                  valueField: 'name', textField: 'name', valueType: "text", title: "Status"
+              },
+              {type: "control", deleteButton: false, editButton: true}
+          ],
+
+          controller: {
+              loadData: (filter) => {
+                  return fetch('/transactions?' + $.param(filter)).then(r => r.json());
+              },
+              updateItem: (data) => {
+                  if (data.status == 'refunded') {
+                      const token = data.token;
+                      return post_data(`/refund/${token}`, {});
+                  }
+                  return false;
+              }
+          }
+      });
+    </script>
+
   </body>
 </html>

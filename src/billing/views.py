@@ -1,20 +1,19 @@
-from typing import Union
+from typing import Union, Optional
 from decimal import Decimal
 from urllib.parse import urljoin
 
 from fastapi import APIRouter, Request, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from starlette.responses import FileResponse
 
-from settings.core import ROOT, HOSTNAME
+from settings.core import HOSTNAME
 from models.accounts import Merchant, Staff
 from models.wallets import Wallet, Currency
 from models.transactions import Invoice, Transaction, PaymentSystem
 from dependencies import get_user, get_merchant, db_session as db, \
     paging, templates, try_get_merchant
 from misc import Paginated
-from services import *
+from services import *  # noqa
 
 
 router = APIRouter()
@@ -25,12 +24,6 @@ User = Union[Merchant, Staff]
 
 class AddWalletRequest(BaseModel):
     currency_id: int
-
-
-class WalletTransferRequest(BaseModel):
-    from_wallet_id: int
-    to_wallet_id: int
-    amount: str
 
 
 class CreateTransactionRequest(BaseModel):
@@ -93,12 +86,15 @@ def rates(from_currency_id: int, session: Session = Depends(db)):
     return {'rates': calculate_rates(from_currency_id)}
 
 
-@router.get('/wallets', response_model=list[Wallet])
-def wallets(session: Session = Depends(db), user: User = Depends(get_user)):
+@router.get('/wallets', response_model=Paginated[Wallet])
+def wallets(
+        paging: dict = Depends(paging),
+        session: Session = Depends(db), user: User = Depends(get_user)
+):
     queryset = session.query(Wallet)
     if not isinstance(user, Staff):
         queryset = queryset.filter(Wallet.merchant_id == user.id)
-    return queryset.all()
+    return Paginated[Wallet].from_queryset(queryset, **paging)
 
 
 @router.post('/wallet', response_model=Wallet)
@@ -140,7 +136,8 @@ def add_invoice(
 @router.get('/transactions', response_model=Paginated[Transaction])
 def transactions(
         paging: dict = Depends(paging),
-        session: Session = Depends(db), user: User = Depends(get_user)
+        session: Session = Depends(db),
+        user: User = Depends(get_user)
 ):
     queryset = session.query(Transaction)
     if not isinstance(user, Staff):
@@ -154,7 +151,7 @@ def get_payment_info_invoice(
         token: str,
         session: Session = Depends(db)
 ):
-    invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+    invoice_id, = session.query(Invoice.id).filter(Invoice.token == token).one()
     with InvoiceManager(invoice_id) as manager:
         return manager.get_payment_info()
 
@@ -166,12 +163,11 @@ def create_transaction(
         session: Session = Depends(db),
         merchant: Optional[User] = Depends(try_get_merchant)
 ):
-    merchant = session.query(Merchant).one()
     if merchant:
-        invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+        invoice_id, = session.query(Invoice.id).filter(Invoice.token == token).one()
         return create_internal_transaction(merchant.id, invoice_id, transaction_request)
     else:
-        invoice_id = session.query(Invoice.id).filter(Invoice.token == token).scalar()
+        invoice_id, = session.query(Invoice.id).filter(Invoice.token == token).one()
         return create_external_transaction(invoice_id, transaction_request)
 
 
@@ -235,7 +231,7 @@ def get_payment_info_transaction(
         token: str,
         session: Session = Depends(db)
 ):
-    transaction_id = session.query(Transaction.id).filter(Transaction.token == token).scalar()
+    transaction_id, = session.query(Transaction.id).filter(Transaction.token == token).one()
     with TransactionManager(transaction_id) as manager:
         return manager.get_payment_info()
 
@@ -246,11 +242,21 @@ def create_attempt(
         attempt_request: CreateAttemptRequest,
         session: Session = Depends(db)
 ):
-    transaction_id = session.query(Transaction.id).filter(Transaction.token == token).scalar()
+    transaction_id, = session.query(Transaction.id).filter(Transaction.token == token).one()
     with TransactionManager(transaction_id) as tmanager:
         attempt = tmanager.create_attempt(payment_system_id=attempt_request.payment_system_id)
         with AttemptManager(attempt.id) as amanager:
             return amanager.send()
+
+
+@router.post('/refund/{token}', response_model=Transaction)
+def refund(
+        token: str,
+        session: Session = Depends(db)
+):
+    transaction_id, = session.query(Transaction.id).filter(Transaction.token == token).one()
+    with TransactionManager(transaction_id) as manager:
+        return manager.refund()
 
 
 @router.post('/visa/{payment_system_id}')

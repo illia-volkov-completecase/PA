@@ -1,14 +1,11 @@
 from typing import Union
-from functools import wraps
 
 from pydantic import BaseModel
-from pydantic.main import ModelMetaclass
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 from bcrypt import hashpw, gensalt
 
 from models.core import session as main_session
 from models.accounts import Staff, Merchant
-from models.transactions import Invoice, Transaction
 
 
 class PaginatedMeta(type):
@@ -58,8 +55,15 @@ def get_or_create(model, session=None, defaults=None, **kwargs):
         return instance
 
 
-def add_user(model: Union[Staff, Merchant], username: str, password: str):
+def add_user(
+        model: Union[Staff, Merchant], username: str, password: str, session = None
+):
     password = hashpw(password.encode(), gensalt()).decode()
+
+    if session:
+        session.add(instance := model(username=username, password=password))
+        session.commit()
+        return instance
 
     with main_session() as s:
         s.add(instance := model(username=username, password=password))

@@ -104,11 +104,20 @@ def emulate_response(attempt_id, hostname=None):
         print(f'body: {response.content}')
 
 
+def load_fixtures():
+    from models.core import session
+    from fixtures import load_all
+
+    with session() as s:
+        load_all(s)
+
+
 a = alembic
 r = runserver
 s = shell
 db = dbshell
 t = test
+f = load_fixtures
 
 if __name__ == '__main__':
     fire.Fire()

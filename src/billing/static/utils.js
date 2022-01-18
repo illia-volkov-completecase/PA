@@ -30,3 +30,18 @@ const poster = (id, url, fields, cb = null) => {
         }
     });
 };
+
+const post_data = (url, data = {}, method = 'POST') => {
+    return fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    }).then(r => {
+        if (!r.ok) {
+            return r.json().then(data => alert(JSON.stringify(data)));
+        };
+        return r.json();
+    });
+};
