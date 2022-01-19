@@ -22,13 +22,14 @@ Note: dev compose file doesn't start server
 1. Run migrations
 `./manage/py a upgrade head`
 2. Create merchant account
-`./manage/py add_user staff`
+`./manage/py add_user merchant`
 3. Run server
 `./manage/py r`
 4. Open API docs at http://localhost:8000/docs
 5. Open web UI (different for staff & merchant, uses API) http://localhost:8000/
 6. Login under merchant account, add wallet, create invoice
 7. Pay invoice with API
+
 Get payment info
 ```
 http -pb http://localhost:8000/pay/7ef59780-46cb-469f-96b3-d62fba7b64f3
@@ -40,8 +41,30 @@ http -pb http://localhost:8000/pay/7ef59780-46cb-469f-96b3-d62fba7b64f3
     "wallet_id": 1
 }
 ```
-Get conversion rates **to** currency
+Get conversion rates info (/rates/ return conversion rate **from** currency)
 ```
+http -pb http://localhost:8000/currencies
+{
+    "currencies": [
+        {
+            "code": "UAH",
+            "id": 1
+        },
+        {
+            "code": "USD",
+            "id": 2
+        },
+        {
+            "code": "EUR",
+            "id": 3
+        },
+        {
+            "code": "GBP",
+            "id": 4
+        }
+    ]
+}
+
 http -pb http://localhost:8000/rates/1
 {
     "rates": {
@@ -51,6 +74,18 @@ http -pb http://localhost:8000/rates/1
         "4": 0.02600250626566416
     }
 }
+
+http -pb http://localhost:8000/rates/2
+{
+    "rates": {
+        "1": 27.96,
+        "2": 1,
+        "3": 0.8759398496240601,
+        "4": 0.7270300751879699
+    }
+}
+
+
 ```
 Create transaction
 ```
@@ -71,14 +106,14 @@ http -pb http://localhost:8000/attempt/387c320c-dd03-4bce-99e1-3f68280b81ad
     }
 ]
 ```
-Create payment attempt
+Create payment attempt (since there is no payment system integration returns command to emulate response)
 ```
 http -pb POST http://localhost:8000/attempt/387c320c-dd03-4bce-99e1-3f68280b81ad payment_system_id=1
 {
     "url": "payment url, use `./manage.py emulate_response 1` to emulate payment response"
 }
 ```
-Emulate postback
+Emulate postback (whole payload is encrypted)
 ```
 ./manage/py emulate_response 1
 choose status [s]uccess/[f]ail/[e]rror: s
