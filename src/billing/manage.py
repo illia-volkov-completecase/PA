@@ -24,10 +24,10 @@ def runserver(host='0.0.0.0', port=8000):
 
 
 def shell():
-    from models.accounts import Merchant, Staff
-    from models.wallets import Currency, Wallet, ConversionRate
-    from models.transactions import Invoice, PaymentSystem, Transaction
-    from models.core import session
+    from models.accounts import Merchant, Staff  # noqa
+    from models.wallets import Currency, Wallet, ConversionRate  # noqa
+    from models.transactions import Invoice, PaymentSystem, Transaction  # noqa
+    from models.core import session  # noqa
 
     try:
         import IPython
@@ -68,10 +68,8 @@ def emulate_response(attempt_id, hostname=None):
 
     import requests
     from settings.core import HOSTNAME
-    from models.choices import AttemptStatus
     from models.transactions import Attempt, PaymentSystem
     from models.core import session
-    from services import AttemptManager
     from cryptography.fernet import Fernet
 
     if hostname is None:

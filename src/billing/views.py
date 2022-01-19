@@ -13,7 +13,8 @@ from models.transactions import Invoice, Transaction, PaymentSystem
 from dependencies import get_user, get_merchant, db_session as db, \
     paging, templates, try_get_merchant
 from misc import Paginated
-from services import *  # noqa
+from services import InvoiceManager, TransactionManager, AttemptManager,\
+    VisaManager, calculate_rates
 
 
 router = APIRouter()

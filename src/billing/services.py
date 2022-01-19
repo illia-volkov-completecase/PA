@@ -43,6 +43,8 @@ DAY: int = 60 * 60 * 24
     means finding shortest path in graph whose nodes represent
     currencies, while edges represent conversion rates
 '''
+
+
 @ttl_cache(maxsize=None, ttl=DAY)
 def calculate_conv_rate(from_: int, to: int) -> Optional[Decimal]:
     if from_ == to:

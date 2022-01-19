@@ -2,10 +2,9 @@ from typing import Optional
 from uuid import uuid4, UUID
 
 from sqlmodel import Field, SQLModel, Relationship, Column, Enum, String, Text
-from sqlalchemy.orm import relationship
 from pydantic import condecimal
 
-from .wallets import Wallet, Currency
+from .wallets import Wallet
 from .choices import InvoiceStatus, TransactionStatus, AttemptStatus,\
     PaymentSystemType, TransactionType
 

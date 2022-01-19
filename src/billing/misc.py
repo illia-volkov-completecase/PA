@@ -56,7 +56,7 @@ def get_or_create(model, session=None, defaults=None, **kwargs):
 
 
 def add_user(
-        model: Union[Staff, Merchant], username: str, password: str, session = None
+        model: Union[Staff, Merchant], username: str, password: str, session=None
 ):
     password = hashpw(password.encode(), gensalt()).decode()
 

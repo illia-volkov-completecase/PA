@@ -1,6 +1,3 @@
-from contextlib import contextmanager
-from unittest.mock import patch
-
 from models import core
 
 import pytest
@@ -12,17 +9,17 @@ from plumbum import local
 from cachetools import func
 
 func.ttl_cache = lambda *_, **__: lambda f: f
-from models import core
-
-from main import app
-from models.settings import DATABASES, TEST_DATABASE_URL
-from settings.core import ROOT
-from views import router
-from dependencies import static_files
 
 
+from main import app  # noqa
+from models.settings import DATABASES, TEST_DATABASE_URL  # noqa
+from settings.core import ROOT  # noqa
+from views import router  # noqa
+from dependencies import static_files  # noqa
 
-import misc, services, views, dependencies
+
+
+import misc, services, views, dependencies  # noqa
 
 
 test_engine = create_engine(DATABASES['test']['url'])
@@ -36,7 +33,7 @@ test_client = TestClient(test_app)
 misc.main_session = core.session = services.session =\
     dependencies.session = views.db =\
         core.serializable_session = services.serializable_session =\
-        test_session
+            test_session
 
 
 @pytest.fixture(scope='function')
@@ -65,11 +62,10 @@ def populate(session):
     from models.transactions import PaymentSystem
     from models.choices import PaymentSystemType
 
-    session.add(c1 := Currency(code='uah'))
-    session.add(c2 := Currency(code='usd'))
-    session.add(c3 := Currency(code='eur'))
-    session.add(c4 := Currency(code='gbp'))
-
+    session.add(Currency(code='uah'))
+    session.add(Currency(code='usd'))
+    session.add(Currency(code='eur'))
+    session.add(Currency(code='gbp'))
 
     session.add(PaymentSystem(
         name='test',
@@ -87,7 +83,6 @@ def database():
         session.execute('CREATE DATABASE test;')
         session.connection().connection.set_isolation_level(1)
         migrate()
-
 
     with Session(test_engine) as session:
         populate(session)

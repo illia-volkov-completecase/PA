@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 from models.wallets import Wallet, Currency, ConversionRate
-from models.transactions import Attempt, Transaction
+from models.transactions import Attempt, Transaction, Invoice
 from models.accounts import Merchant
 from models.choices import TransactionStatus, InvoiceStatus
 from misc import add_user, get_or_create
-from services import *
+from services import InvoiceManager, TransactionManager, AttemptManager,\
+    calculate_conv_rate, calculate_rates
 
 
 def test_calculate_conv_rate(session):
@@ -336,7 +337,6 @@ def test_internal_transaction_conversion(session):
     assert InvoiceStatus.complete == session.query(Invoice.status)\
                                             .filter(Invoice.id == invoice.id)\
                                             .scalar()
-
 
     assert Decimal('95') == session.query(Wallet.amount)\
                                    .filter(Wallet.id == wallet1.id)\

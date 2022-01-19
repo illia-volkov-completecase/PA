@@ -1,5 +1,3 @@
-import pytest
-from urllib.parse import urljoin
 from decimal import Decimal
 from requests.auth import _basic_auth_str
 
@@ -7,9 +5,8 @@ from misc import add_user, get_or_create
 from models.accounts import Merchant, Staff
 from models.wallets import Wallet, Currency, ConversionRate
 from models.transactions import Invoice, Transaction, Attempt
-from models.choices import CurrencyCode, AttemptStatus, InvoiceStatus
+from models.choices import InvoiceStatus
 from services import calculate_rates, AttemptManager, InvoiceManager
-from settings.core import HOSTNAME
 
 
 def basic_auth(model, test_name: str):
@@ -164,7 +161,6 @@ def test_app_session(session, client):
         manager.fetch()
         assert manager.paid_amount == Decimal('22.2')
         assert manager.invoice.status == InvoiceStatus.complete
-
 
     staff, staff_auth = basic_auth(Staff, 'test_app_session_staff')
     url = f'/refund/{token}'
